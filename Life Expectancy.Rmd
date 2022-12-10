@@ -1,0 +1,222 @@
+---
+title: "Midterm Project"
+output:
+  word_document: default
+  pdf_document: default
+author: "Yaquan Yang"
+date: "2022-12-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Abstract
+
+This report focuses on using multilevel linear mixed models to examine the factors influencing human life expectancy at the global level and how that influence is affected by country and year differences.
+
+
+## Introduction
+
+The main question of this project was to identify the main effective predictors of life expectancy. In short, we need to answer the question: if a health organisation wants to increase life expectancy somewhere, what variables can they change in order to reach their goal?
+
+The public dataset I used provides data for 193 countries from 2000 to 2015 and has a structure of 2938 rows (data points) divided into 22 columns (features). These features can be divided into two groups.
+
+Health factors like "HIV", "Under Five Deaths", "Adult Mortality", "BMI" etc.
+Economic factors like "GDP", "Income Composition of Resources", "Status" etc.
+
+Since the data set is from the World Health Organization, we consider the data to be authentic and reliable. Most of the missing data are for population, hepatitis B, and GDP. The missing data came from less known countries such as Vanuatu, Tonga, Togo, Cape Verde, etc. Finding all the data for these countries was difficult, so we decided to ignore the missing data
+
+
+## Exploratory Data Analysis
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(ggcorrplot)
+library(corrplot)
+library(leaps)
+library(car)
+library(Metrics)
+library(reshape2)
+library(ggpubr)
+library(moments)
+library(DataExplorer)
+```
+Data source: https://www.kaggle.com/datasets/kumarajarshi/life-expectancy-who
+
+First we did the data cleaning and processing, and do descriptive statistical analysis. Making graphs to show the distribution of each variable.
+```{r}
+mydata <- read.csv("Life Expectancy Data.csv",encoding = "UTF-8")%>% na.omit()
+ggplot(mydata,aes(x=Alcohol))+
+  geom_histogram()+
+  ggtitle("Alcohol")+
+  theme_classic()
+ 
+ggplot(mydata,aes(x=Life.expectancy))+
+  geom_histogram()+
+  ggtitle("Life.expectancy")+
+  theme_classic()
+```
+
+```{r}
+visdat::vis_miss(mydata) + coord_flip() + theme(legend.position = "none")
+
+dput(names(mydata))
+vars <- c("Country", "Year", "Status", "Life.expectancy", "Adult.Mortality", 
+"infant.deaths", "Alcohol", "percentage.expenditure", "Hepatitis.B", 
+"Measles", "BMI", "under.five.deaths", "Polio", "Total.expenditure", 
+"Diphtheria", "HIV.AIDS", "GDP", "Population", "thinness..1.19.years", 
+"thinness.5.9.years", "Income.composition.of.resources", "Schooling"
+)
+mydata<-mydata[,vars];str(mydata)
+factorvars<-c("Country","Status" , "Year")
+mydata[factorvars]<-lapply(mydata[factorvars],factor)
+numvars<-setdiff(vars,factorvars)
+mydata[numvars]<-lapply(mydata[numvars],as.numeric)
+
+
+#str(mydata)
+plot_histogram(mydata)
+plot_density(mydata)
+plot_bar(mydata)
+```
+### Categorical variables:
+
+```{r}
+#set_plot_dimensions(10,8)
+ggplot(mydata ,aes(x= Status,y=Life.expectancy, fill= Status)) + 
+        geom_boxplot() +
+        ggtitle("Life expectancy per country Status")+
+        theme(text = element_text(size = 12))+
+        scale_fill_brewer(palette="Set1")
+```
+We see that life expectancy is higher in developed countries, which means that the categorical variables can be a good predictor for the model.
+
+
+### Correlation:
+
+Next we need to consider the correlation between different characteristic variables and life expectancy, and we make a plot of the correlation matrix to show the correlation between them, which facilitates our better selection of predictor variables.
+
+```{r}
+numdata <- mydata[,-c(1,2,3)] 
+cordata <- cor(numdata,)
+corrplot(cordata,method = "shade",shade.col = NA, tl.col ="black", tl.srt = 45, order = "AOE",
+         tl.cex =.5 )
+```
+Moreover, Two features with high correlation will directly show strong crosstalk, so we should try to avoid in our model:
+
+Infant.deaths & Under.five.deaths.
+GDP & Percentage.expenditure.
+Thinness..1.19.years & Thinness.5.9.years.
+
+For the above pairs,we thus need to eliminate one of the two when choosing our predictor. 
+
+
+
+```{r}
+ggplot(mydata ,aes(x =Income.composition.of.resources, y =Life.expectancy)) +
+  geom_point() 
+```
+
+First, I wanted to use "Income composition of resources" to predict the Life.expectancy, in the scatter plot of BMI and Life.expectancy, I found that the linear relationship between them is not obvious, there seems to be multiple levels of linearity, so next I plot the logarithm of the population against life expectancy by grouping the data by year.
+
+
+
+```{r}
+ggplot(mydata ,aes(x =Income.composition.of.resources  , y =Life.expectancy))+
+  geom_point()  +
+  geom_smooth(method = "lm", se = FALSE,col="blue") +
+  facet_wrap(~Year,scales = "free_y")
+
+ggplot(mydata ,aes(x =Income.composition.of.resources  , y =Life.expectancy,color=Status)) +
+  geom_point()  +
+  geom_smooth(method = "lm", se = FALSE,col="black") +
+  facet_wrap(~Status,scales = "free")
+```
+From this set of plots we can feel that the difference in the effect of Income composition of resources on life expectancy with year can be represented by the slope of the regression line.
+
+
+## Model fitting
+
+We make use of the lme4 package for fitting mixed effects models, and some supplmentary packages: lmerTest provides tools for obtaining p-vlaues.
+
+To start, we often fit an unconditional means model that provides us information about within-group differences between years.
+
+### Fitting the unconditional means model:
+```{r}
+library(lmerTest)
+m1 <- lmer( Life.expectancy ~ 1 + (1 | Year), mydata)
+summary(m1)
+
+```
+
+
+We extract the random effects with the VarCorr() function:
+```{r}
+VarCorr(m1)
+```
+The estimated correlation between the random effects is -1.00
+The results are highly significant, indicating that our our model fit is on the right path.
+
+
+
+Now, let’s add the predictor:
+```{r}
+m2 <- lmer( Life.expectancy ~ BMI + Alcohol+ Total.expenditure + GDP + Schooling +  HIV.AIDS+infant.deaths+Adult.Mortality+Polio+Income.composition.of.resources+Status+Year+(1 + Status | Country), mydata)
+#str(mydata)
+summary(m2)
+confint(m2)
+plot(m2)
+```
+Predictor variables that have a strong positive association with life expectancy are "Schooling", "Year"
+
+Fixed Effects:
+
+Random Effects:
+
+
+
+From the fitting results of model 2 we can see that the effect of BMI and GDP on life expectancy is insignificant, so we decided to exclude these predictor variables and add both year and country as random effects to the model fitting to obtain model 3
+
+```{r}
+m3 <- lmer( Life.expectancy ~ Alcohol + GDP + Schooling +  HIV.AIDS + infant.deaths + Adult.Mortality + Income.composition.of.resources+Status + (1 + Status| Country) + (1 + Status | Year), mydata)
+summary(m3)
+```
+
+### Fixed Effects:
+(Intercept):
+Schooling: For every unit increase in the number of years of Schooling, positive affect is Expected to increase by 0.206, which is statistically significant.
+HIV.AIDS: Higher number of deaths per 1 000 live births HIV/AIDS tended to experience higher negative affect, 0.324, which is statistically significant.
+Infant.deaths: Higher number of Infant Deaths per 1000 population tended to experience higher negative affect, 0.005, which is statistically significant.
+Adult.Mortality: The higher probability of dying between 15 and 60 years per 1000 population, the lower life expectancy(-0.02).
+StatusDeveloping: Life expectancy in developing countries is 10.65 years less than in developed countries.
+
+### Random Effects:
+(Intercept):There are intergroup differences in life expectancy among populations in different countries(8.71) and year(1.38).
+StatusDeveloping: In the relationship between StatusDeveloping and life expectancy, there are significant effects across countries(18.10).
+corr((Intercept),Country: The correlation between the random intercept and random slope was 0.98, which indicates that those country had higher intercepts for Life expectancy were also more likely to have greater (more positive) associations between Status and Life expectancy.
+
+
+## Model Check
+We can also get confidence intervals for the fixed and random effects:
+```{r}
+confint(m3)
+```
+
+```{r}
+plot(m3)
+```
+Since the residual plots do not show a clear pattern and the distribution is relatively homogeneous, we consider the model fit to be better.
+
+
+## Conclusion
+
+By fitting a linear mixed model to analyze the data, we can conclude that the predictor variables that have a significant positive effect on life expectancy are "Schooling" and "Income composition of resources". Both of them are economic factors. Moreover, the predictor variables that had a significant negative effect on life expectancy are "Alcohol", "HIV", "Infant deaths", "Adult Mortality". All of them are health factors.
+
+In addition, we have seen a worldwide trend of increasing life expectancy year by year, which may be related to technological advances, medical improvements, economic development and improved quality of life.
+
+## Reference
+https://quantdev.ssri.psu.edu/tutorials/r-bootcamp-introduction-multilevel-model-and-interactions
+
+https://www.kaggle.com/code/mohamedelsaadany/statistical-modeling-of-life-expectancy-data-r/notebook

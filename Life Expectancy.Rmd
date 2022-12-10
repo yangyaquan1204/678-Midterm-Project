@@ -216,6 +216,13 @@ By fitting a linear mixed model to analyze the data, we can conclude that the pr
 
 In addition, we have seen a worldwide trend of increasing life expectancy year by year, which may be related to technological advances, medical improvements, economic development and improved quality of life.
 
+## Discussion
+
+In this report, a multilevel mixed model was used to calculate the relationship between life expectancy and economic and health factors for the global population. In addition, the model considers two group levels: country and year. In general, most of the predictors have a significant effect on life expectancy from a fixed effects perspective. From a random effects perspective, different countries and years also have an impact on the slope and intercept of each predictor variable. Finally, the validity of the model is supported by the model checks I did.
+
+This report also has some limitations. Since the only publicly available datasets are from 2000 to 2015, this is more outdated for today in 2022, especially not considering the impact of the new crown pneumonia epidemic starting in 2020. This will undoubtedly have an impact on global population life expectancy.
+
+
 ## Reference
 https://quantdev.ssri.psu.edu/tutorials/r-bootcamp-introduction-multilevel-model-and-interactions
 
